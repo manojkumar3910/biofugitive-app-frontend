@@ -8,6 +8,7 @@ import {
   Dimensions,
   Alert,
   ScrollView,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { 
@@ -23,10 +24,11 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { 
   Camera, 
   Fingerprint, 
-  CreditCard, 
   User, 
   ChevronRight, 
   X,
@@ -38,10 +40,14 @@ import {
   Usb,
   Focus,
   CircleDot,
+  Upload,
+  FileImage,
+  XCircle,
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
 import { useActivity } from "../context/ActivityContext";
 import { spacing, borderRadius, shadows, typography } from "../theme";
+import { API_BASE_URL } from "../config/api";
 
 const { width, height } = Dimensions.get('window');
 const SCAN_FRAME_SIZE = width * 0.88;
@@ -153,6 +159,11 @@ export default function ScanScreen() {
   const [scanType, setScanType] = useState(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraFacing, setCameraFacing] = useState('front');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [fingerprintMatchResult, setFingerprintMatchResult] = useState(null);
+  const [faceMatchResult, setFaceMatchResult] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
   const cameraRef = useRef(null);
   
   const headerAnim = useRef(new Animated.Value(0)).current;
@@ -183,15 +194,7 @@ export default function ScanScreen() {
   const startScan = async (type) => {
     setScanType(type);
     
-    // Show device not connected modal for fingerprint
-    if (type === "Fingerprint") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setShowDeviceModal(true);
-      addActivity('SCAN_FAILED', { message: `${type} scan - Device not connected` });
-      return;
-    }
-    
-    // Check camera permission for other scan types
+    // Check camera permission for all scan types
     if (!permission?.granted) {
       const granted = await requestCameraPermission();
       if (!granted) {
@@ -205,6 +208,7 @@ export default function ScanScreen() {
     }
     
     // Set camera facing based on scan type
+    // Use back camera for fingerprint scanning
     setCameraFacing(type === "Facial" ? 'front' : 'back');
     
     setShowOptions(false);
@@ -222,48 +226,300 @@ export default function ScanScreen() {
   };
 
   const captureAndProcess = async () => {
+    // Show warning for facial recognition to remove obstructions
+    if (scanType === "Facial") {
+      Alert.alert(
+        "📸 Before Capturing",
+        "For accurate face recognition, please ensure:\n\n• Remove masks\n• Remove glasses/sunglasses\n• Face the camera directly\n• Ensure good lighting",
+        [
+          {
+            text: "Cancel",
+            style: "cancel"
+          },
+          {
+            text: "Capture",
+            onPress: () => proceedWithCapture()
+          }
+        ]
+      );
+      return;
+    }
+    
+    // For non-facial scans, proceed directly
+    proceedWithCapture();
+  };
+
+  const proceedWithCapture = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setIsProcessing(true);
     
     if (cameraRef.current) {
       try {
         const photo = await cameraRef.current.takePictureAsync({
-          quality: 0.8,
+          quality: 0.9,
           base64: true,
         });
         console.log("Photo captured:", photo.uri);
-        // Here you would send the photo to your API for processing
         
-        // Log successful scan
+        // If it's a fingerprint scan, send to matching API
+        if (scanType === "Fingerprint") {
+          try {
+            console.log("Sending fingerprint to matching API...");
+            const response = await fetch(`${API_BASE_URL}/fingerprint-match`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                fingerprint: photo.base64,
+                filename: `camera_scan_${Date.now()}.jpg`,
+              }),
+            });
+
+            const data = await response.json();
+            console.log("Fingerprint match result:", data);
+
+            if (response.ok) {
+              setFingerprintMatchResult(data);
+              Haptics.notificationAsync(
+                data.matchFound 
+                  ? Haptics.NotificationFeedbackType.Success 
+                  : Haptics.NotificationFeedbackType.Warning
+              );
+              addActivity(
+                data.matchFound ? 'FINGERPRINT_MATCH_FOUND' : 'FINGERPRINT_NO_MATCH',
+                { 
+                  message: data.matchFound 
+                    ? `Match found: ${data.matchedPerson?.name} (Score: ${data.score})`
+                    : 'No fingerprint match found'
+                }
+              );
+              
+              setIsProcessing(false);
+              setIsScanning(false);
+              setCameraActive(false);
+              setShowUploadModal(true); // Reuse upload modal to show results
+              return;
+            } else {
+              throw new Error(data.message || 'Fingerprint matching failed');
+            }
+          } catch (matchError) {
+            console.error("Fingerprint matching error:", matchError);
+            Alert.alert("Error", `Fingerprint matching failed: ${matchError.message}`);
+            addActivity('SCAN_FAILED', { message: `Fingerprint matching failed - ${matchError.message}` });
+            setIsProcessing(false);
+            setIsScanning(false);
+            setCameraActive(false);
+            setShowOptions(true);
+            return;
+          }
+        }
+        
+        // If it's a facial recognition scan, send to face-match API (DeepFace)
+        if (scanType === "Facial") {
+          try {
+            console.log("Sending face image to DeepFace matching API...");
+            const response = await fetch(`${API_BASE_URL}/face-match`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                faceImage: photo.base64,
+                filename: `face_scan_${Date.now()}.jpg`,
+              }),
+            });
+
+            const data = await response.json();
+            console.log("Face match result:", data);
+
+            if (response.ok) {
+              setFaceMatchResult(data);
+              Haptics.notificationAsync(
+                data.matchFound 
+                  ? Haptics.NotificationFeedbackType.Success 
+                  : Haptics.NotificationFeedbackType.Warning
+              );
+              addActivity(
+                data.matchFound ? 'FACE_MATCH_FOUND' : 'FACE_NO_MATCH',
+                { 
+                  message: data.matchFound 
+                    ? `Match found: ${data.matchedPerson?.name} (Confidence: ${data.confidence}%)`
+                    : 'No face match found'
+                }
+              );
+              
+              setIsProcessing(false);
+              setIsScanning(false);
+              setCameraActive(false);
+              setShowResultModal(true); // Show result modal for face recognition
+              return;
+            } else {
+              throw new Error(data.message || 'Face matching failed');
+            }
+          } catch (matchError) {
+            console.error("Face matching error:", matchError);
+            Alert.alert("Error", `Face matching failed: ${matchError.message}`);
+            addActivity('SCAN_FAILED', { message: `Face matching failed - ${matchError.message}` });
+            setIsProcessing(false);
+            setIsScanning(false);
+            setCameraActive(false);
+            setShowOptions(true);
+            return;
+          }
+        }
+        
+        // Log successful scan for other types
         addActivity('SCAN_SUCCESS', { message: `${scanType} scan completed successfully` });
+        
+        // For other scan types, show result modal after delay
+        setTimeout(() => {
+          setIsProcessing(false);
+          setIsScanning(false);
+          setCameraActive(false);
+          setShowResultModal(true);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }, 1000);
       } catch (error) {
         console.error("Error capturing photo:", error);
         addActivity('SCAN_FAILED', { message: `${scanType} scan failed - ${error.message}` });
+        setIsProcessing(false);
+        setIsScanning(false);
+        setCameraActive(false);
+        setShowOptions(true);
       }
-    }
-    
-    // Simulate processing time
-    setTimeout(() => {
+    } else {
       setIsProcessing(false);
       setIsScanning(false);
       setCameraActive(false);
-      setShowResultModal(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }, 2000);
+      setShowOptions(true);
+    }
   };
 
   const resetScan = () => {
     setShowResultModal(false);
     setShowDeviceModal(false);
+    setShowUploadModal(false);
     setScanType(null);
     setIsScanning(false);
     setIsProcessing(false);
     setCameraActive(false);
     setCameraFacing('front');
+    setSelectedFile(null);
+    setFingerprintMatchResult(null);
+    setFaceMatchResult(null);
+    setIsUploading(false);
     // Delay showing options to allow modal to close
     setTimeout(() => {
       setShowOptions(true);
     }, 100);
+  };
+
+  // Handle fingerprint file upload
+  const pickFingerprintFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/bmp', 'image/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setSelectedFile(file);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        addActivity('FILE_SELECTED', { message: `Fingerprint file selected: ${file.name}` });
+      }
+    } catch (error) {
+      console.error("Error picking file:", error);
+      Alert.alert("Error", "Failed to select file. Please try again.");
+    }
+  };
+
+  // Upload and match fingerprint
+  const uploadAndMatchFingerprint = async () => {
+    if (!selectedFile) {
+      Alert.alert("No File", "Please select a fingerprint image first.");
+      return;
+    }
+
+    setIsUploading(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    try {
+      console.log("Selected file:", selectedFile);
+      
+      // Get the file URI - handle different formats
+      let fileUri = selectedFile.uri;
+      
+      // For Android content:// URIs, we need to copy to cache first
+      if (fileUri.startsWith('content://')) {
+        const cacheUri = FileSystem.cacheDirectory + selectedFile.name;
+        await FileSystem.copyAsync({
+          from: fileUri,
+          to: cacheUri,
+        });
+        fileUri = cacheUri;
+      }
+
+      // Read file as base64 - use string 'base64' instead of EncodingType.Base64
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: 'base64',
+      });
+
+      if (!base64) {
+        throw new Error("Failed to read file content");
+      }
+
+      console.log("Base64 length:", base64.length);
+
+      // Send to backend for matching
+      const response = await fetch(`${API_BASE_URL}/fingerprint-match`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fingerprint: base64,
+          filename: selectedFile.name,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setFingerprintMatchResult(data);
+        Haptics.notificationAsync(
+          data.matchFound 
+            ? Haptics.NotificationFeedbackType.Success 
+            : Haptics.NotificationFeedbackType.Warning
+        );
+        addActivity(
+          data.matchFound ? 'FINGERPRINT_MATCH_FOUND' : 'FINGERPRINT_NO_MATCH',
+          { 
+            message: data.matchFound 
+              ? `Match found: ${data.matchedPerson?.name} (Score: ${data.score})`
+              : 'No fingerprint match found'
+          }
+        );
+      } else {
+        throw new Error(data.message || 'Failed to match fingerprint');
+      }
+    } catch (error) {
+      console.error("Fingerprint matching error:", error);
+      Alert.alert("Error", error.message || "Failed to process fingerprint. Please try again.");
+      addActivity('FINGERPRINT_MATCH_ERROR', { message: error.message });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Open fingerprint upload modal
+  const openFingerprintUpload = () => {
+    setScanType("Fingerprint Upload");
+    setShowOptions(false);
+    setShowUploadModal(true);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    addActivity('FINGERPRINT_UPLOAD_STARTED', { message: 'Fingerprint upload initiated' });
   };
 
   const dynamicStyles = createStyles(colors);
@@ -399,19 +655,19 @@ export default function ScanScreen() {
             <Text style={dynamicStyles.sectionTitle}>Choose Scan Type</Text>
             
             <ScanOption
-              icon={Fingerprint}
-              title="Fingerprint Scan"
-              description="Scan and match biometric data"
-              onPress={() => startScan("Fingerprint")}
+              icon={Upload}
+              title="Upload Fingerprint"
+              description="Upload .bmp file to find match"
+              onPress={openFingerprintUpload}
               colors={colors}
               delay={100}
             />
             
             <ScanOption
-              icon={CreditCard}
-              title="ID Card Scan"
-              description="Scan government issued ID"
-              onPress={() => startScan("ID Card")}
+              icon={Fingerprint}
+              title="Fingerprint Scan"
+              description="Scan and match biometric data"
+              onPress={() => startScan("Fingerprint")}
               colors={colors}
               delay={200}
             />
@@ -566,34 +822,109 @@ export default function ScanScreen() {
             ]}
           >
             <View style={dynamicStyles.modalContent}>
-              <View style={[dynamicStyles.resultIcon, { backgroundColor: colors.success + '20' }]}>
-                <CheckCircle size={48} color={colors.success} />
-              </View>
+              {/* Dynamic icon based on match result */}
+              {scanType === "Facial" && faceMatchResult ? (
+                <View style={[
+                  dynamicStyles.resultIcon, 
+                  { backgroundColor: faceMatchResult.matchFound ? colors.success + '20' : colors.warning + '20' }
+                ]}>
+                  {faceMatchResult.matchFound ? (
+                    <CheckCircle size={48} color={colors.success} />
+                  ) : (
+                    <AlertCircle size={48} color={colors.warning} />
+                  )}
+                </View>
+              ) : (
+                <View style={[dynamicStyles.resultIcon, { backgroundColor: colors.success + '20' }]}>
+                  <CheckCircle size={48} color={colors.success} />
+                </View>
+              )}
               
-              <Text style={dynamicStyles.modalTitle}>Scan Complete</Text>
+              <Text style={dynamicStyles.modalTitle}>
+                {scanType === "Facial" && faceMatchResult 
+                  ? (faceMatchResult.matchFound ? "Match Found!" : "No Match Found")
+                  : "Scan Complete"}
+              </Text>
               <Text style={dynamicStyles.modalSubtitle}>
-                {scanType} processed successfully
+                {scanType === "Facial" && faceMatchResult
+                  ? (faceMatchResult.matchFound 
+                      ? `Identified: ${faceMatchResult.matchedPerson?.name || 'Unknown'}`
+                      : faceMatchResult.message || "No matching person in database")
+                  : `${scanType} processed successfully`}
               </Text>
               
               <Divider style={{ marginVertical: spacing.md, backgroundColor: colors.border }} />
               
               <View style={dynamicStyles.resultDetails}>
-                <View style={dynamicStyles.resultRow}>
-                  <Text style={dynamicStyles.resultLabel}>Match Status</Text>
-                  <Text style={[dynamicStyles.resultValue, { color: colors.success }]}>Found</Text>
-                </View>
-                <View style={dynamicStyles.resultRow}>
-                  <Text style={dynamicStyles.resultLabel}>Confidence</Text>
-                  <Text style={dynamicStyles.resultValue}>94.7%</Text>
-                </View>
-                <View style={dynamicStyles.resultRow}>
-                  <Text style={dynamicStyles.resultLabel}>Scan Type</Text>
-                  <Text style={dynamicStyles.resultValue}>{scanType}</Text>
-                </View>
-                <View style={dynamicStyles.resultRow}>
-                  <Text style={dynamicStyles.resultLabel}>Processing Time</Text>
-                  <Text style={dynamicStyles.resultValue}>3.2s</Text>
-                </View>
+                {/* Face Recognition Results */}
+                {scanType === "Facial" && faceMatchResult ? (
+                  <>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Match Status</Text>
+                      <Text style={[
+                        dynamicStyles.resultValue, 
+                        { color: faceMatchResult.matchFound ? colors.success : colors.warning }
+                      ]}>
+                        {faceMatchResult.matchFound ? "Found" : "Not Found"}
+                      </Text>
+                    </View>
+                    {faceMatchResult.matchFound && faceMatchResult.matchedPerson && (
+                      <>
+                        <View style={dynamicStyles.resultRow}>
+                          <Text style={dynamicStyles.resultLabel}>Person ID</Text>
+                          <Text style={dynamicStyles.resultValue}>
+                            {faceMatchResult.matchedPerson.personId || "N/A"}
+                          </Text>
+                        </View>
+                        <View style={dynamicStyles.resultRow}>
+                          <Text style={dynamicStyles.resultLabel}>Name</Text>
+                          <Text style={dynamicStyles.resultValue}>
+                            {faceMatchResult.matchedPerson.name || "Unknown"}
+                          </Text>
+                        </View>
+                      </>
+                    )}
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Confidence</Text>
+                      <Text style={dynamicStyles.resultValue}>
+                        {faceMatchResult.confidence ? `${faceMatchResult.confidence}%` : "N/A"}
+                      </Text>
+                    </View>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Faces Compared</Text>
+                      <Text style={dynamicStyles.resultValue}>
+                        {faceMatchResult.totalCompared || 0}
+                      </Text>
+                    </View>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Processing Time</Text>
+                      <Text style={dynamicStyles.resultValue}>
+                        {faceMatchResult.processingTime 
+                          ? `${(faceMatchResult.processingTime / 1000).toFixed(1)}s`
+                          : "N/A"}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Match Status</Text>
+                      <Text style={[dynamicStyles.resultValue, { color: colors.success }]}>Found</Text>
+                    </View>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Confidence</Text>
+                      <Text style={dynamicStyles.resultValue}>94.7%</Text>
+                    </View>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Scan Type</Text>
+                      <Text style={dynamicStyles.resultValue}>{scanType}</Text>
+                    </View>
+                    <View style={dynamicStyles.resultRow}>
+                      <Text style={dynamicStyles.resultLabel}>Processing Time</Text>
+                      <Text style={dynamicStyles.resultValue}>3.2s</Text>
+                    </View>
+                  </>
+                )}
               </View>
 
               <View style={dynamicStyles.modalActions}>
@@ -604,6 +935,7 @@ export default function ScanScreen() {
                     // Reset to show options again
                     setShowOptions(true);
                     setScanType(null);
+                    setFaceMatchResult(null);
                   }}
                   style={[dynamicStyles.modalButtonOutline, { borderColor: colors.border }]}
                 >
@@ -630,6 +962,198 @@ export default function ScanScreen() {
                 </Pressable>
               </View>
             </View>
+          </Modal>
+        </Portal>
+
+        {/* Fingerprint Upload Modal */}
+        <Portal>
+          <Modal
+            visible={showUploadModal}
+            onDismiss={() => {
+              if (!isUploading) {
+                setShowUploadModal(false);
+                resetScan();
+              }
+            }}
+            contentContainerStyle={[
+              dynamicStyles.modalContainer,
+              { backgroundColor: colors.surface, maxHeight: '90%' }
+            ]}
+          >
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={dynamicStyles.modalContent}>
+                {/* Header */}
+                <View style={[dynamicStyles.resultIcon, { backgroundColor: colors.primary + '20' }]}>
+                  <Upload size={48} color={colors.primary} />
+                </View>
+                
+                <Text style={dynamicStyles.modalTitle}>Upload Fingerprint</Text>
+                <Text style={[dynamicStyles.modalSubtitle, { textAlign: 'center' }]}>
+                  Select a .bmp fingerprint image to find matches in the database
+                </Text>
+                
+                <Divider style={{ marginVertical: spacing.lg, backgroundColor: colors.border, width: '100%' }} />
+                
+                {/* File Selection Area */}
+                <Pressable
+                  onPress={pickFingerprintFile}
+                  disabled={isUploading}
+                  style={[
+                    dynamicStyles.uploadArea,
+                    { 
+                      borderColor: selectedFile ? colors.success : colors.border,
+                      backgroundColor: selectedFile ? colors.success + '10' : colors.surfaceCard,
+                    }
+                  ]}
+                >
+                  {selectedFile ? (
+                    <View style={dynamicStyles.selectedFileContainer}>
+                      <FileImage size={40} color={colors.success} />
+                      <Text style={[dynamicStyles.selectedFileName, { color: colors.text }]} numberOfLines={1}>
+                        {selectedFile.name}
+                      </Text>
+                      <Text style={[dynamicStyles.selectedFileSize, { color: colors.textSecondary }]}>
+                        {selectedFile.size ? `${(selectedFile.size / 1024).toFixed(2)} KB` : 'File selected'}
+                      </Text>
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setSelectedFile(null);
+                          setFingerprintMatchResult(null);
+                        }}
+                        style={dynamicStyles.removeFileButton}
+                      >
+                        <XCircle size={20} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <View style={dynamicStyles.uploadPlaceholder}>
+                      <FileImage size={48} color={colors.textMuted} />
+                      <Text style={[dynamicStyles.uploadText, { color: colors.text }]}>
+                        Tap to select fingerprint image
+                      </Text>
+                      <Text style={[dynamicStyles.uploadHint, { color: colors.textMuted }]}>
+                        Supports .bmp and other image formats
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+
+                {/* Match Results */}
+                {fingerprintMatchResult && (
+                  <View style={dynamicStyles.matchResultContainer}>
+                    <View style={[
+                      dynamicStyles.matchResultHeader,
+                      { backgroundColor: fingerprintMatchResult.matchFound ? colors.success + '20' : colors.warning + '20' }
+                    ]}>
+                      {fingerprintMatchResult.matchFound ? (
+                        <CheckCircle size={24} color={colors.success} />
+                      ) : (
+                        <AlertCircle size={24} color={colors.warning} />
+                      )}
+                      <Text style={[
+                        dynamicStyles.matchResultTitle,
+                        { color: fingerprintMatchResult.matchFound ? colors.success : colors.warning }
+                      ]}>
+                        {fingerprintMatchResult.matchFound ? 'Match Found!' : 'No Match Found'}
+                      </Text>
+                    </View>
+                    
+                    {fingerprintMatchResult.matchFound && fingerprintMatchResult.matchedPerson && (
+                      <View style={dynamicStyles.matchedPersonDetails}>
+                        <View style={dynamicStyles.resultRow}>
+                          <Text style={dynamicStyles.resultLabel}>Name</Text>
+                          <Text style={dynamicStyles.resultValue}>{fingerprintMatchResult.matchedPerson.name}</Text>
+                        </View>
+                        <View style={dynamicStyles.resultRow}>
+                          <Text style={dynamicStyles.resultLabel}>Person ID</Text>
+                          <Text style={dynamicStyles.resultValue}>{fingerprintMatchResult.matchedPerson.personId}</Text>
+                        </View>
+                        <View style={dynamicStyles.resultRow}>
+                          <Text style={dynamicStyles.resultLabel}>Match Score</Text>
+                          <Text style={[dynamicStyles.resultValue, { color: colors.success }]}>
+                            {fingerprintMatchResult.score?.toFixed(2)}
+                          </Text>
+                        </View>
+                        {fingerprintMatchResult.matchedPerson.gender && (
+                          <View style={dynamicStyles.resultRow}>
+                            <Text style={dynamicStyles.resultLabel}>Gender</Text>
+                            <Text style={dynamicStyles.resultValue}>{fingerprintMatchResult.matchedPerson.gender}</Text>
+                          </View>
+                        )}
+                        {fingerprintMatchResult.matchedPerson.age && (
+                          <View style={dynamicStyles.resultRow}>
+                            <Text style={dynamicStyles.resultLabel}>Age</Text>
+                            <Text style={dynamicStyles.resultValue}>{fingerprintMatchResult.matchedPerson.age}</Text>
+                          </View>
+                        )}
+                        {fingerprintMatchResult.matchedFinger && (
+                          <View style={dynamicStyles.resultRow}>
+                            <Text style={dynamicStyles.resultLabel}>Matched Finger</Text>
+                            <Text style={dynamicStyles.resultValue}>
+                              {fingerprintMatchResult.matchedFinger.hand} {fingerprintMatchResult.matchedFinger.finger}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    
+                    {!fingerprintMatchResult.matchFound && (
+                      <View style={dynamicStyles.noMatchMessage}>
+                        <Text style={[dynamicStyles.noMatchText, { color: colors.textSecondary }]}>
+                          The uploaded fingerprint did not match any records in the database.
+                          {fingerprintMatchResult.bestScore > 0 && (
+                            `\n\nBest score: ${fingerprintMatchResult.bestScore?.toFixed(2)} (threshold: 40)`
+                          )}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Action Buttons */}
+                <View style={[dynamicStyles.modalActions, { marginTop: spacing.lg }]}>
+                  <Pressable
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setShowUploadModal(false);
+                      resetScan();
+                    }}
+                    disabled={isUploading}
+                    style={[dynamicStyles.modalButtonOutline, { borderColor: colors.border, opacity: isUploading ? 0.5 : 1 }]}
+                  >
+                    <X size={16} color={colors.text} />
+                    <Text style={[dynamicStyles.modalButtonText, { color: colors.text }]}>
+                      Cancel
+                    </Text>
+                  </Pressable>
+                  
+                  <Pressable
+                    onPress={uploadAndMatchFingerprint}
+                    disabled={!selectedFile || isUploading}
+                  >
+                    <LinearGradient
+                      colors={(!selectedFile || isUploading) 
+                        ? [colors.textMuted, colors.textMuted] 
+                        : [colors.primary, '#8B5CF6']}
+                      style={[dynamicStyles.modalButtonFilled, { opacity: (!selectedFile || isUploading) ? 0.5 : 1 }]}
+                    >
+                      {isUploading ? (
+                        <>
+                          <ActivityIndicator size="small" color="#fff" />
+                          <Text style={dynamicStyles.modalButtonTextWhite}>Matching...</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Fingerprint size={16} color="#fff" />
+                          <Text style={dynamicStyles.modalButtonTextWhite}>Find Match</Text>
+                        </>
+                      )}
+                    </LinearGradient>
+                  </Pressable>
+                </View>
+              </View>
+            </ScrollView>
           </Modal>
         </Portal>
       </View>
@@ -1041,5 +1565,79 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#fff',
+  },
+  // Upload Modal Styles
+  uploadArea: {
+    width: '100%',
+    minHeight: 150,
+    borderRadius: borderRadius.lg,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  uploadPlaceholder: {
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  uploadText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: spacing.sm,
+  },
+  uploadHint: {
+    fontSize: 12,
+  },
+  selectedFileContainer: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    position: 'relative',
+    width: '100%',
+  },
+  selectedFileName: {
+    fontSize: 14,
+    fontWeight: '600',
+    maxWidth: '80%',
+  },
+  selectedFileSize: {
+    fontSize: 12,
+  },
+  removeFileButton: {
+    position: 'absolute',
+    top: -10,
+    right: 0,
+    padding: spacing.xs,
+  },
+  matchResultContainer: {
+    width: '100%',
+    marginTop: spacing.lg,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
+  },
+  matchResultHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+  },
+  matchResultTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  matchedPersonDetails: {
+    padding: spacing.md,
+    backgroundColor: colors.surfaceCard,
+  },
+  noMatchMessage: {
+    padding: spacing.lg,
+    backgroundColor: colors.surfaceCard,
+  },
+  noMatchText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

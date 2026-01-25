@@ -19,8 +19,11 @@ import HomeScreen from "./screens/HomeScreen";
 import ScanScreen from "./screens/ScanScreen";
 import RecentDocsScreen from "./screens/RecentDocsScreen";
 import AllDocsScreen from "./screens/AllDocsScreen";
-import ForensicScreen from "./screens/ForensicScreen";
 import PersonDetailScreen from "./screens/PersonDetailScreen";
+import CaseManagementScreen from "./screens/CaseManagementScreen";
+import PersonManagementScreen from "./screens/PersonManagementScreen";
+import AnalyticsScreen from "./screens/AnalyticsScreen";
+import ReportsScreen from "./screens/ReportsScreen";
 import Toast, { BaseToast } from "react-native-toast-message";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ActivityProvider } from "./context/ActivityContext";
@@ -117,9 +120,6 @@ function MainTabs() {
             case 'Documents':
               iconName = focused ? 'folder' : 'folder-outline';
               break;
-            case 'Forensic':
-              iconName = focused ? 'fingerprint' : 'fingerprint';
-              break;
             default:
               iconName = 'circle';
           }
@@ -142,11 +142,6 @@ function MainTabs() {
         name="Documents" 
         component={AllDocsScreen}
         options={{ tabBarLabel: 'Documents' }}
-      />
-      <Tab.Screen 
-        name="Forensic" 
-        component={ForensicScreen}
-        options={{ tabBarLabel: 'Forensic' }}
       />
     </Tab.Navigator>
   );
@@ -211,6 +206,38 @@ function AppNavigator() {
           <Stack.Screen 
             name="PersonDetail" 
             component={PersonDetailScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="CaseManagement" 
+            component={CaseManagementScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="PersonManagement" 
+            component={PersonManagementScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="Analytics" 
+            component={AnalyticsScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen 
+            name="Reports" 
+            component={ReportsScreen}
             options={{
               headerShown: false,
               animation: 'slide_from_right',

@@ -274,6 +274,25 @@ export const typography = {
     lineHeight: 32,
     letterSpacing: -0.3,
   },
+  
+  // Size shortcuts for quick access
+  sizes: {
+    xs: 10,
+    sm: 12,
+    md: 14,
+    lg: 16,
+    xl: 20,
+    xxl: 28,
+    xxxl: 36,
+  },
+  
+  // Font weight shortcuts
+  weights: {
+    regular: '400',
+    medium: '500',
+    semibold: '600',
+    bold: '700',
+  },
 };
 
 // ============================================

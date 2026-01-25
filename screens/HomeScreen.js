@@ -19,9 +19,12 @@ import {
   ScanLine, 
   Clock, 
   FileText, 
-  Microscope,
   Fingerprint,
   Activity,
+  Briefcase,
+  Users,
+  BarChart3,
+  FileBarChart,
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
@@ -185,6 +188,24 @@ export default function HomeScreen({ navigation }) {
       iconColor: colors.primary,
     },
     {
+      title: "CASES",
+      Icon: Briefcase,
+      route: "CaseManagement",
+      iconColor: '#8B5CF6',
+    },
+    {
+      title: "ANALYTICS",
+      Icon: BarChart3,
+      route: "Analytics",
+      iconColor: '#3B82F6',
+    },
+    {
+      title: "REPORTS",
+      Icon: FileBarChart,
+      route: "Reports",
+      iconColor: '#F59E0B',
+    },
+    {
       title: "RECENT",
       Icon: Clock,
       route: "RecentDocs",
@@ -195,12 +216,6 @@ export default function HomeScreen({ navigation }) {
       Icon: FileText,
       route: "Documents",
       iconColor: colors.success,
-    },
-    {
-      title: "FORENSIC",
-      Icon: Microscope,
-      route: "Forensic",
-      iconColor: colors.warning,
     },
   ];
 

@@ -11,6 +11,22 @@ const STORAGE_KEYS = {
 // Session duration (24 hours in milliseconds)
 const SESSION_DURATION = 24 * 60 * 60 * 1000;
 
+// Role constants (must match backend)
+const ROLES = {
+  admin: 'admin',       // Everything - Full system access
+  officer: 'officer',   // Assigned cases only
+  forensic: 'forensic', // Evidence only
+  analyst: 'analyst',   // Read-only access
+};
+
+// Role display names
+const ROLE_LABELS = {
+  admin: 'Administrator',
+  officer: 'Officer',
+  forensic: 'Forensic Specialist',
+  analyst: 'Analyst',
+};
+
 // Create context
 const AuthContext = createContext({
   isLoggedIn: false,
@@ -20,6 +36,15 @@ const AuthContext = createContext({
   login: async () => {},
   logout: async () => {},
   checkSession: async () => {},
+  isAdmin: () => false,
+  isOfficer: () => false,
+  isForensic: () => false,
+  isAnalyst: () => false,
+  hasRole: () => false,
+  canAccessCases: () => false,
+  canModifyEvidence: () => false,
+  canModifyCases: () => false,
+  isReadOnly: () => false,
 });
 
 // Hook to use auth context
@@ -42,6 +67,24 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     checkSession();
   }, []);
+
+  // Role checking helpers
+  const isAdmin = () => user?.role === ROLES.admin;
+  const isOfficer = () => user?.role === ROLES.officer;
+  const isForensic = () => user?.role === ROLES.forensic;
+  const isAnalyst = () => user?.role === ROLES.analyst;
+  
+  const hasRole = (...roles) => roles.includes(user?.role);
+  
+  // Permission helpers
+  const canAccessCases = () => hasRole(ROLES.admin, ROLES.officer, ROLES.forensic, ROLES.analyst);
+  const canModifyCases = () => hasRole(ROLES.admin, ROLES.officer);
+  const canModifyEvidence = () => hasRole(ROLES.admin, ROLES.forensic);
+  const canManageUsers = () => isAdmin();
+  const isReadOnly = () => isAnalyst();
+
+  // Get role label
+  const getRoleLabel = () => ROLE_LABELS[user?.role] || 'Unknown';
 
   // Check if there's a valid session
   const checkSession = async () => {
@@ -138,6 +181,22 @@ export const AuthProvider = ({ children }) => {
     logout,
     checkSession,
     extendSession,
+    // Role checks
+    isAdmin,
+    isOfficer,
+    isForensic,
+    isAnalyst,
+    hasRole,
+    getRoleLabel,
+    // Permission checks
+    canAccessCases,
+    canModifyCases,
+    canModifyEvidence,
+    canManageUsers,
+    isReadOnly,
+    // Constants
+    ROLES,
+    ROLE_LABELS,
   };
 
   return (
@@ -147,4 +206,5 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+export { ROLES, ROLE_LABELS };
 export default AuthContext;
