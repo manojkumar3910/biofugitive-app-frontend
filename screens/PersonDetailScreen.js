@@ -225,7 +225,10 @@ export default function PersonDetailScreen({ route, navigation }) {
                       }}
                     >
                       <Image
-                        source={{ uri: imageUrl }}
+                        source={{ 
+                          uri: imageUrl,
+                          headers: { 'ngrok-skip-browser-warning': '69420' }
+                        }}
                         style={dynamicStyles.fingerprintImage}
                         resizeMode="cover"
                       />
@@ -276,7 +279,10 @@ export default function PersonDetailScreen({ route, navigation }) {
                 {/* Large Fingerprint Image */}
                 <View style={[dynamicStyles.modalImageContainer, { backgroundColor: colors.surface }]}>
                   <Image
-                    source={{ uri: `${API_ENDPOINTS.FINGERPRINTS}/${selectedFingerprint.filename}` }}
+                    source={{ 
+                      uri: `${API_ENDPOINTS.FINGERPRINTS}/${selectedFingerprint.filename}`,
+                      headers: { 'ngrok-skip-browser-warning': '69420' }
+                    }}
                     style={dynamicStyles.modalImage}
                     resizeMode="contain"
                   />

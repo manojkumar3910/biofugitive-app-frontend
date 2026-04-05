@@ -56,8 +56,9 @@ import {
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
 import { useActivity } from "../context/ActivityContext";
+import { useAuth } from "../context/AuthContext";
 import { spacing, borderRadius, typography } from "../theme";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, authFetch } from "../config/api";
 
 const { width } = Dimensions.get("window");
 
@@ -220,6 +221,7 @@ function PersonCard({ person, onPress, onEdit, onDelete, onWatchlist, colors, in
 export default function PersonManagementScreen({ navigation }) {
   const { colors } = useAppTheme();
   const { addActivity } = useActivity();
+  const { token, user } = useAuth();
   
   const [persons, setPersons] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -274,7 +276,7 @@ export default function PersonManagementScreen({ navigation }) {
       if (genderFilter) params.append("gender", genderFilter);
       if (watchlistOnly) params.append("watchlist", "true");
 
-      const response = await fetch(`${API_BASE_URL}/persons-db?${params.toString()}`);
+      const response = await authFetch(`${API_BASE_URL}/persons-db?${params.toString()}`, token);
       const data = await response.json();
       setPersons(data.persons || []);
     } catch (err) {
@@ -313,11 +315,11 @@ export default function PersonManagementScreen({ navigation }) {
         distinguishingMarks: formData.distinguishingMarks ? formData.distinguishingMarks.split(",").map(m => m.trim()) : [],
         height: formData.height ? parseInt(formData.height) : null,
         weight: formData.weight ? parseInt(formData.weight) : null,
-        createdBy: "current_user",
-        updatedBy: "current_user",
+        createdBy: user?.user_id || "unknown",
+        updatedBy: user?.user_id || "unknown",
       };
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, token, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -342,11 +344,11 @@ export default function PersonManagementScreen({ navigation }) {
 
   const handleToggleWatchlist = async (person) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/persons-db/${person._id}/watchlist`, {
+      const response = await authFetch(`${API_BASE_URL}/persons-db/${person._id}/watchlist`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          addedBy: "current_user",
+          addedBy: user?.user_id || "unknown",
           priority: "medium",
           reason: "Added via app",
         }),
@@ -372,7 +374,7 @@ export default function PersonManagementScreen({ navigation }) {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/persons-db/${selectedPerson._id}/criminal-history`, {
+      const response = await authFetch(`${API_BASE_URL}/persons-db/${selectedPerson._id}/criminal-history`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(criminalForm),
@@ -400,7 +402,7 @@ export default function PersonManagementScreen({ navigation }) {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/persons-db/${selectedPerson._id}/associates`, {
+      const response = await authFetch(`${API_BASE_URL}/persons-db/${selectedPerson._id}/associates`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(associateForm),

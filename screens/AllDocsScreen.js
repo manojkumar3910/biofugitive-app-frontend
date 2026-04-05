@@ -27,9 +27,10 @@ import {
   Search,
   RefreshCw,
 } from "lucide-react-native";
-import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
 import { useAppTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+import { authFetch } from "../config/api";
 import { spacing, borderRadius } from "../theme";
 import { API_ENDPOINTS } from "../config/api";
 import { useActivity } from "../context/ActivityContext";
@@ -223,6 +224,7 @@ function FilterChip({ label, selected, onPress, colors, icon }) {
 export default function AllDocsScreen() {
   const { colors } = useAppTheme();
   const { addActivity } = useActivity();
+  const { token } = useAuth();
   const navigation = useNavigation();
   const [persons, setPersons] = useState([]);
   const [filteredPersons, setFilteredPersons] = useState([]);
@@ -246,10 +248,11 @@ export default function AllDocsScreen() {
   const fetchPersons = async () => {
     setError(null);
     try {
-      const response = await axios.get(API_ENDPOINTS.PERSONS);
-      const data = response.data.persons || [];
-      setPersons(data);
-      setFilteredPersons(data);
+      const response = await authFetch(API_ENDPOINTS.PERSONS, token);
+      const data = await response.json();
+      const personsList = data.persons || [];
+      setPersons(personsList);
+      setFilteredPersons(personsList);
     } catch (err) {
       console.error("Error fetching persons:", err);
       setError("Failed to load records. Pull to refresh.");

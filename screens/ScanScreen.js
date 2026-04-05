@@ -46,8 +46,9 @@ import {
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
 import { useActivity } from "../context/ActivityContext";
+import { useAuth } from "../context/AuthContext";
 import { spacing, borderRadius, shadows, typography } from "../theme";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, authFetch } from "../config/api";
 
 const { width, height } = Dimensions.get('window');
 const SCAN_FRAME_SIZE = width * 0.88;
@@ -150,6 +151,7 @@ function ScanOption({ icon: Icon, title, description, onPress, colors, delay }) 
 export default function ScanScreen() {
   const { colors, isDark } = useAppTheme();
   const { addActivity } = useActivity();
+  const { token, user } = useAuth();
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -265,7 +267,7 @@ export default function ScanScreen() {
         if (scanType === "Fingerprint") {
           try {
             console.log("Sending fingerprint to matching API...");
-            const response = await fetch(`${API_BASE_URL}/fingerprint-match`, {
+            const response = await authFetch(`${API_BASE_URL}/fingerprint-match`, token, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -273,6 +275,7 @@ export default function ScanScreen() {
               body: JSON.stringify({
                 fingerprint: photo.base64,
                 filename: `camera_scan_${Date.now()}.jpg`,
+                userId: user?.user_id || 'unknown',
               }),
             });
 
@@ -319,7 +322,7 @@ export default function ScanScreen() {
         if (scanType === "Facial") {
           try {
             console.log("Sending face image to DeepFace matching API...");
-            const response = await fetch(`${API_BASE_URL}/face-match`, {
+            const response = await authFetch(`${API_BASE_URL}/face-match`, token, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -327,6 +330,7 @@ export default function ScanScreen() {
               body: JSON.stringify({
                 faceImage: photo.base64,
                 filename: `face_scan_${Date.now()}.jpg`,
+                userId: user?.user_id || 'unknown',
               }),
             });
 
@@ -473,7 +477,7 @@ export default function ScanScreen() {
       console.log("Base64 length:", base64.length);
 
       // Send to backend for matching
-      const response = await fetch(`${API_BASE_URL}/fingerprint-match`, {
+      const response = await authFetch(`${API_BASE_URL}/fingerprint-match`, token, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -481,6 +485,7 @@ export default function ScanScreen() {
         body: JSON.stringify({
           fingerprint: base64,
           filename: selectedFile.name,
+          userId: user?.user_id || 'unknown',
         }),
       });
 

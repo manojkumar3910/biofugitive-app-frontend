@@ -46,8 +46,9 @@ import {
   Eye,
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 import { spacing, borderRadius, typography } from "../theme";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, authFetch } from "../config/api";
 
 const { width } = Dimensions.get("window");
 
@@ -159,6 +160,7 @@ function ReportCard({ report, colors, onView, onDelete }) {
 
 export default function ReportsScreen({ navigation }) {
   const { colors } = useAppTheme();
+  const { token, user } = useAuth();
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -180,7 +182,7 @@ export default function ReportsScreen({ navigation }) {
 
   const fetchReports = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/reports`);
+      const response = await authFetch(`${API_BASE_URL}/reports`, token);
       const data = await response.json();
       // Handle both array and { reports } object response
       setReports(Array.isArray(data) ? data : (data.reports || []));
@@ -212,7 +214,7 @@ export default function ReportsScreen({ navigation }) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/reports/generate`, {
+      const response = await authFetch(`${API_BASE_URL}/reports/generate`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -220,7 +222,7 @@ export default function ReportsScreen({ navigation }) {
           title: newReport.title,
           description: newReport.description,
           format: newReport.format,
-          generatedBy: "current_user",
+          generatedBy: user?.user_id || "unknown",
           parameters: {},
         }),
       });
@@ -253,7 +255,7 @@ export default function ReportsScreen({ navigation }) {
           style: "destructive",
           onPress: async () => {
             try {
-              await fetch(`${API_BASE_URL}/reports/${report._id}`, {
+              await authFetch(`${API_BASE_URL}/reports/${report._id}`, token, {
                 method: "DELETE",
               });
               setReports(prev => prev.filter(r => r._id !== report._id));
@@ -289,7 +291,7 @@ export default function ReportsScreen({ navigation }) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/export/csv/${type}`);
+      const response = await authFetch(`${API_BASE_URL}/export/csv/${type}`, token);
       if (response.ok) {
         Alert.alert("Success", `${type} data exported successfully!`);
       }

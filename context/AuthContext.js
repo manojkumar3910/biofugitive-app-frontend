@@ -98,6 +98,13 @@ export const AuthProvider = ({ children }) => {
       ]);
 
       if (storedToken && storedUser && storedExpiry) {
+        // Clear invalid placeholder token if it exists
+        if (storedToken === 'authenticated') {
+          console.log('Clearing old placeholder session');
+          await clearStorage();
+          return;
+        }
+
         const expiryTime = parseInt(storedExpiry, 10);
         const now = Date.now();
 
@@ -121,16 +128,21 @@ export const AuthProvider = ({ children }) => {
 
   // Login function
   const login = async (userToken, userData) => {
+    if (!userToken) {
+      console.warn('Login called without a token');
+      return false;
+    }
+
     try {
       const expiryTime = Date.now() + SESSION_DURATION;
 
       await Promise.all([
-        AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, userToken || 'authenticated'),
+        AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, userToken),
         AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData || { id: 'user' })),
         AsyncStorage.setItem(STORAGE_KEYS.SESSION_EXPIRY, expiryTime.toString()),
       ]);
 
-      setToken(userToken || 'authenticated');
+      setToken(userToken);
       setUser(userData || { id: 'user' });
       setIsLoggedIn(true);
 

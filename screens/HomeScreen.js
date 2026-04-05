@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Surface, IconButton, Avatar, Badge, Menu, Icon } from "react-native-paper";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "@react-navigation/native";
-import axios from "axios";
+import { API_BASE_URL, API_ENDPOINTS, authFetch } from "../config/api";
 import { 
   ScanLine, 
   Clock, 
@@ -30,7 +30,6 @@ import { useAppTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import { useActivity, formatTimeAgo } from "../context/ActivityContext";
 import { spacing, borderRadius, shadows, typography } from "../theme";
-import { API_ENDPOINTS } from "../config/api";
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - spacing.lg * 3) / 2;
@@ -104,7 +103,7 @@ function MenuCard({ title, Icon, onPress, delay, colors, iconColor }) {
 
 export default function HomeScreen({ navigation }) {
   const { colors, toggleTheme, isDark } = useAppTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const { activities, refreshActivities, addActivity } = useActivity();
   const headerAnim = useRef(new Animated.Value(0)).current;
   const [menuVisible, setMenuVisible] = React.useState(false);
@@ -118,12 +117,13 @@ export default function HomeScreen({ navigation }) {
 
   const fetchStats = useCallback(async () => {
     try {
-      const response = await axios.get(API_ENDPOINTS.STATS);
-      setStats(response.data);
+      const response = await authFetch(API_ENDPOINTS.STATS, token);
+      const data = await response.json();
+      setStats(data);
     } catch (err) {
       console.error("Error fetching stats:", err);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     Animated.timing(headerAnim, {

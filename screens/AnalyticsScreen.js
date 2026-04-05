@@ -38,8 +38,9 @@ import {
   AlertTriangle,
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
 import { spacing, borderRadius, typography } from "../theme";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, authFetch } from "../config/api";
 
 const { width } = Dimensions.get("window");
 
@@ -159,6 +160,7 @@ function ActivityItem({ activity, colors }) {
 
 export default function AnalyticsScreen({ navigation }) {
   const { colors } = useAppTheme();
+  const { token, user } = useAuth();
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -170,8 +172,8 @@ export default function AnalyticsScreen({ navigation }) {
   const fetchAnalytics = useCallback(async () => {
     try {
       const [analyticsRes, auditRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/analytics`),
-        fetch(`${API_BASE_URL}/audit-logs?limit=20`),
+        authFetch(`${API_BASE_URL}/analytics`, token),
+        authFetch(`${API_BASE_URL}/audit-logs?limit=20`, token),
       ]);
 
       const analyticsData = await analyticsRes.json();
@@ -202,7 +204,7 @@ export default function AnalyticsScreen({ navigation }) {
     
     try {
       // Trigger CSV download
-      const response = await fetch(`${API_BASE_URL}/export/csv/${type}`);
+      const response = await authFetch(`${API_BASE_URL}/export/csv/${type}`, token);
       if (response.ok) {
         // In a real app, you'd save this to file system or share
         alert(`${type} data exported successfully!`);
@@ -219,13 +221,13 @@ export default function AnalyticsScreen({ navigation }) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/reports/generate`, {
+      const response = await authFetch(`${API_BASE_URL}/reports/generate`, token, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: reportType,
           title: `${reportType.replace(/_/g, " ")} Report`,
-          generatedBy: "current_user",
+          generatedBy: user?.user_id || "unknown",
           parameters: {},
         }),
       });

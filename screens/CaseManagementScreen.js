@@ -51,8 +51,9 @@ import {
 } from "lucide-react-native";
 import { useAppTheme } from "../context/ThemeContext";
 import { useActivity } from "../context/ActivityContext";
+import { useAuth } from "../context/AuthContext";
 import { spacing, borderRadius, typography } from "../theme";
-import { API_BASE_URL } from "../config/api";
+import { API_BASE_URL, API_ENDPOINTS, authFetch } from "../config/api";
 
 const { width } = Dimensions.get("window");
 
@@ -188,6 +189,7 @@ function CaseCard({ caseItem, onPress, onEdit, onDelete, colors, index }) {
 export default function CaseManagementScreen({ navigation }) {
   const { colors } = useAppTheme();
   const { addActivity } = useActivity();
+  const { token, user, isOfficer } = useAuth();
   
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -218,8 +220,8 @@ export default function CaseManagementScreen({ navigation }) {
       if (searchQuery) params.append("search", searchQuery);
       if (statusFilter) params.append("status", statusFilter);
       if (priorityFilter) params.append("priority", priorityFilter);
-
-      const response = await fetch(`${API_BASE_URL}/cases?${params.toString()}`);
+      if (isOfficer() && user?.user_id) params.append("assignedTo", user.user_id);
+      const response = await authFetch(`${API_BASE_URL}/cases?${params.toString()}`, token);
       const data = await response.json();
       setCases(data.cases || []);
     } catch (err) {
@@ -233,7 +235,7 @@ export default function CaseManagementScreen({ navigation }) {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/cases-stats`);
+      const response = await authFetch(`${API_BASE_URL}/cases-stats`, token);
       const data = await response.json();
       setCaseStats(data);
     } catch (err) {
@@ -264,13 +266,13 @@ export default function CaseManagementScreen({ navigation }) {
         ? `${API_BASE_URL}/cases/${selectedCase._id}`
         : `${API_BASE_URL}/cases`;
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, token, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...formData,
-          createdBy: "current_user",
-          updatedBy: "current_user",
+          createdBy: user?.user_id || "unknown",
+          updatedBy: user?.user_id || "unknown",
         }),
       });
 
@@ -303,8 +305,9 @@ export default function CaseManagementScreen({ navigation }) {
           style: "destructive",
           onPress: async () => {
             try {
-              const response = await fetch(
-                `${API_BASE_URL}/cases/${caseItem._id}?userId=current_user`,
+              const response = await authFetch(
+                `${API_BASE_URL}/cases/${caseItem._id}?userId=${user?.user_id}`,
+                token,
                 { method: "DELETE" }
               );
               if (response.ok) {
